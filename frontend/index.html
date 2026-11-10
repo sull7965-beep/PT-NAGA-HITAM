@@ -41,11 +41,7 @@
             Kategori
             </a>
 
-            <a href="#"
-            data-owner-only
-            onclick="showPage('transaksi', this)">
-            Transaksi
-            </a>
+            
 
             <a href="#"
             onclick="showPage('pembayaran', this)">
@@ -54,8 +50,8 @@
 
             <a href="#"
             data-owner-only
-            onclick="showPage('riwayat', this)">
-            Riwayat Pembayaran
+            onclick="showPage('riwayatTransaksi', this)">
+                Riwayat Transaksi & Pembayaran
             </a>
 
             <a href="#"
@@ -159,7 +155,6 @@
                                 <th>Harga Pokok (HPP)</th>
                                 <th>Harga Jual</th>
                                 <th>Status</th>
-                                <th>Beli</th>
                                 <th class="owner-only">Aksi</th>
                             </tr>
                         </thead>
@@ -265,31 +260,21 @@
         </section>
 
         
-<section id="transaksi" class="page">
-    <div class="panel">
-        <h2>Manajemen Transaksi</h2>
-        <p>Kelola dan pantau seluruh aktivitas penjualan BeliBeli.</p>
-
-        <div class="cards">
-            <div class="card">
-                <h3>Total Transaksi</h3>
-                <h2 id="transaksiTotal">0</h2>
-            </div>
-            <div class="card">
-                <h3>Transaksi Selesai</h3>
-                <h2>0</h2>
-            </div>
-        </div>
-
-        <h2>Daftar Transaksi</h2>
-        <p>Informasi transaksi akan ditampilkan di sini.</p>
-    </div>
-</section>
-
 
        
 <section id="pembayaran" class="page">
+    <div id="cashActions" hidden>
+        <p>Silakan periksa uang yang diterima sebelum konfirmasi.</p>
 
+        <button type="button" onclick="confirmCashPayment()">
+            Konfirmasi Pembayaran Tunai
+        </button>
+
+        <button type="button" class="btn-reset"
+            onclick="failCurrentPayment()">
+            Tandai Pembayaran Gagal
+        </button>
+    </div>
     <div class="panel">
         <h2>Keranjang Belanja</h2>
         <p>Periksa barang yang akan dibeli sebelum melakukan pembayaran.</p>
@@ -337,10 +322,22 @@
         </div>
 
         <div class="form-group" id="cashGroup">
-            <label for="cashReceived">Uang Diterima</label>
-            <input type="number" id="cashReceived"
-                min="0" placeholder="Masukkan jumlah uang">
-        </div>
+    <label for="cashReceived">Uang Diterima</label>
+    <input type="number" id="cashReceived"
+        min="0" placeholder="Masukkan jumlah uang">
+</div>
+
+<div id="cashActions" hidden>
+    <button type="button"
+        onclick="confirmCashPayment()">
+        Konfirmasi Pembayaran Tunai
+    </button>
+
+    <button type="button" class="btn-reset"
+        onclick="failCurrentPayment()">
+        Tandai Pembayaran Gagal
+    </button>
+</div>
 
         <button type="button" id="checkoutButton"
             onclick="processCheckout()">
@@ -350,19 +347,26 @@
         <p id="paymentMessage" class="message"></p>
 
         <div id="qrisResult" hidden>
-            <h3>Scan QRIS</h3>
-            <p>Silakan scan QR Code berikut.</p>
+    <h3>Scan QRIS</h3>
+    <p>Silakan scan QR Code berikut.</p>
 
-            <img id="qrisImage" alt="QRIS"
-                style="width:250px;max-width:100%;">
+    <img id="qrisImage" alt="QRIS"
+        style="width:250px;max-width:100%;">
 
-            <p id="qrisInfo"></p>
+    <p id="qrisInfo"></p>
 
-            <button type="button" id="simulateQrisButton"
-                onclick="simulatePayment()">
-                Simulasikan Pembayaran Berhasil
-            </button>
-        </div>
+    <h3 id="qrisCountdown">Sisa waktu: 05:00</h3>
+
+    <button type="button" id="simulateQrisButton"
+        onclick="simulatePayment()">
+        Simulasikan Pembayaran Berhasil
+    </button>
+
+    <button type="button" class="btn-reset"
+        onclick="failCurrentPayment()">
+        Batalkan / Pembayaran Gagal
+    </button>
+</div>
     </div>
 
     <div class="panel" id="receiptPanel" hidden>
@@ -382,43 +386,110 @@
 </section>
 
 
-        
-<section id="riwayat" class="page">
+<!-- RIWAYAT TRANSAKSI DAN PEMBAYARAN (OWNER) -->
+<section id="riwayatTransaksi" class="page">
+
     <div class="panel">
-        <h2>Riwayat Pembayaran</h2>
-        <p>Pantau seluruh pembayaran pelanggan.</p>
+        <div class="toolbar">
+            <div>
+                <h2>Riwayat Transaksi & Pembayaran</h2>
+                <p>Pantau seluruh transaksi penjualan beserta status pembayarannya.</p>
+            </div>
+
+            <button type="button" onclick="loadTransactionHistory()">
+                Refresh Data
+            </button>
+        </div>
 
         <div class="cards">
+            <div class="card">
+                <h3>Total Transaksi</h3>
+                <h2 id="historyTransactionTotal">0</h2>
+            </div>
+
             <div class="card">
                 <h3>Pembayaran Berhasil</h3>
                 <h2 id="historyPaid">0</h2>
             </div>
+
             <div class="card">
                 <h3>Total Pembayaran</h3>
                 <h2 id="historyTotal">Rp0</h2>
             </div>
         </div>
 
-        <div class="toolbar">
-            <div>
-                <h2>Riwayat Pembayaran</h2>
-                <p>Daftar pembayaran yang telah dilakukan.</p>
-            </div>
-            <button onclick="loadDashboard()">Refresh</button>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>No.</th>
+                        <th>ID Transaksi</th>
+                        <th>ID Pembayaran</th>
+                        <th>Tanggal</th>
+                        <th>Metode</th>
+                        <th>Total</th>
+                        <th>Status Pembayaran</th>
+                    </tr>
+                </thead>
+
+                <tbody id="transactionHistoryTable">
+                    <tr>
+                        <td colspan="7">Memuat data...</td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
 
-        <p>Data riwayat pembayaran akan ditampilkan di sini.</p>
+        <p id="transactionHistoryMessage" class="message"></p>
     </div>
-</section>
+
+</section>        
 
 
         
-<section id="laporan" class="page">
-    <div class="panel">
-        <h2>Laporan Penjualan</h2>
-        <p>Ringkasan aktivitas dan performa penjualan BeliBeli.</p>
 
+<!-- HALAMAN LAPORAN OWNER -->
+<section id="laporan" class="page">
+
+    <div class="panel">
+        <div class="toolbar">
+            <div>
+                <h2>Laporan Penjualan</h2>
+                <p>Ringkasan penjualan dan pembayaran BeliBeli.</p>
+            </div>
+
+            <button type="button" onclick="loadSalesReport()">
+                Refresh Laporan
+            </button>
+        </div>
+
+        <!-- FILTER TANGGAL -->
+        <div class="inline-form">
+            <div class="form-group">
+                <label for="reportStartDate">Dari Tanggal</label>
+                <input type="date" id="reportStartDate">
+            </div>
+
+            <div class="form-group">
+                <label for="reportEndDate">Sampai Tanggal</label>
+                <input type="date" id="reportEndDate">
+            </div>
+
+            <button type="button" onclick="loadSalesReport()">
+                Terapkan Filter
+            </button>
+
+            <button type="button" class="btn-reset"
+                onclick="resetSalesReport()">
+                Reset
+            </button>
+        </div>
+
+        <p id="reportMessage" class="message"></p>
+
+        <!-- RINGKASAN -->
         <div class="cards">
+
             <div class="card">
                 <h3>Total Pendapatan</h3>
                 <h2 id="reportIncome">Rp0</h2>
@@ -428,16 +499,68 @@
                 <h3>Total Transaksi</h3>
                 <h2 id="reportTransactions">0</h2>
             </div>
-        </div>
 
-        <div class="panel">
-            <h2>Analisis Penjualan</h2>
-            <p>
-                Laporan penjualan berdasarkan transaksi
-                dan pembayaran yang berhasil.
-            </p>
+            <div class="card">
+                <h3>Pembayaran Berhasil</h3>
+                <h2 id="reportPaid">0</h2>
+            </div>
+
+            <div class="card">
+                <h3>Pembayaran Pending</h3>
+                <h2 id="reportPending">0</h2>
+            </div>
+
         </div>
     </div>
+
+    <!-- RINCIAN METODE PEMBAYARAN -->
+    <div class="panel">
+        <h2>Ringkasan Metode Pembayaran</h2>
+
+        <div class="cards">
+
+            <div class="card">
+                <h3>Cash / Tunai</h3>
+                <h2 id="reportCashIncome">Rp0</h2>
+                <p id="reportCashCount">0 transaksi</p>
+            </div>
+
+            <div class="card">
+                <h3>QRIS</h3>
+                <h2 id="reportQrisIncome">Rp0</h2>
+                <p id="reportQrisCount">0 transaksi</p>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- TABEL LAPORAN -->
+    <div class="panel">
+        <h2>Rincian Laporan Transaksi</h2>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>No.</th>
+                        <th>ID Transaksi</th>
+                        <th>ID Pembayaran</th>
+                        <th>Tanggal</th>
+                        <th>Metode</th>
+                        <th>Total</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+
+                <tbody id="reportTable">
+                    <tr>
+                        <td colspan="7">Belum ada data laporan.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
 </section>
 
     </main>

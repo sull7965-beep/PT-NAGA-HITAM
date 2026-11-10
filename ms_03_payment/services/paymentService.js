@@ -277,11 +277,325 @@ async function simulateQris(paymentId) {
     }
 }
 
+// Membatalkan pembayaran CASH atau QRIS
+async function failPayment(paymentId) {
+    const client = await db.connect();
+
+    try {
+        await client.query("BEGIN");
+
+        const result = await client.query(
+            `SELECT *
+             FROM payments
+             WHERE id = $1
+             FOR UPDATE`,
+            [paymentId]
+        );
+
+        const payment = result.rows[0];
+
+        if (!payment) {
+            throw new Error("Pembayaran tidak ditemukan.");
+        }
+
+        if (payment.status !== "PENDING") {
+            throw new Error(
+                `Pembayaran tidak dapat dibatalkan karena statusnya ${payment.status}.`
+            );
+        }
+
+        const updated = await client.query(
+            `UPDATE payments
+             SET status = 'FAILED'
+             WHERE id = $1
+             RETURNING *`,
+            [paymentId]
+        );
+
+        // Jika QRIS, tandai transaksi QRIS juga sebagai gagal.
+        if (payment.method === "QRIS") {
+            await client.query(
+                `UPDATE qris_transactions
+                 SET status = 'FAILED'
+                 WHERE payment_id = $1`,
+                [paymentId]
+            );
+        }
+
+        await client.query("COMMIT");
+
+        return updated.rows[0];
+
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
+
+// Memeriksa dan memperbarui status QRIS yang sudah kedaluwarsa
+async function expireQris(paymentId) {
+    const client = await db.connect();
+
+    try {
+        await client.query("BEGIN");
+
+        const result = await client.query(
+            `SELECT *
+             FROM payments
+             WHERE id = $1
+             FOR UPDATE`,
+            [paymentId]
+        );
+
+        const payment = result.rows[0];
+
+        if (!payment) {
+            throw new Error("Pembayaran tidak ditemukan.");
+        }
+
+        if (payment.method !== "QRIS") {
+            throw new Error("Pembayaran ini bukan QRIS.");
+        }
+
+        if (payment.status !== "PENDING") {
+            await client.query("COMMIT");
+
+            return {
+                expired: payment.status === "EXPIRED",
+                status: payment.status
+            };
+        }
+
+        const qrisResult = await client.query(
+            `SELECT *
+             FROM qris_transactions
+             WHERE payment_id = $1
+             FOR UPDATE`,
+            [paymentId]
+        );
+
+        const qris = qrisResult.rows[0];
+
+        if (!qris) {
+            throw new Error("Data QRIS tidak ditemukan.");
+        }
+
+        // Waktu diperiksa oleh PostgreSQL, bukan jam browser.
+        const expiryResult = await client.query(
+            `SELECT expired_at <= CURRENT_TIMESTAMP AS is_expired
+             FROM qris_transactions
+             WHERE payment_id = $1`,
+            [paymentId]
+        );
+
+        if (!expiryResult.rows[0].is_expired) {
+            await client.query("COMMIT");
+
+            return {
+                expired: false,
+                status: "PENDING",
+                expired_at: qris.expired_at
+            };
+        }
+
+        await client.query(
+            `UPDATE payments
+             SET status = 'EXPIRED'
+             WHERE id = $1`,
+            [paymentId]
+        );
+
+        await client.query(
+            `UPDATE qris_transactions
+             SET status = 'EXPIRED'
+             WHERE payment_id = $1`,
+            [paymentId]
+        );
+
+        await client.query("COMMIT");
+
+        return {
+            expired: true,
+            status: "EXPIRED",
+            message: "Kode QRIS sudah kedaluwarsa."
+        };
+
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
+
+// ======================================================
+// MEMBATALKAN PEMBAYARAN CASH / QRIS
+// ======================================================
+
+async function failPayment(paymentId) {
+    const client = await db.connect();
+
+    try {
+        await client.query("BEGIN");
+
+        const result = await client.query(
+            `SELECT *
+             FROM payments
+             WHERE id = $1
+             FOR UPDATE`,
+            [paymentId]
+        );
+
+        const payment = result.rows[0];
+
+        if (!payment) {
+            throw new Error("Pembayaran tidak ditemukan.");
+        }
+
+        if (payment.status !== "PENDING") {
+            throw new Error(
+                `Pembayaran tidak dapat dibatalkan. Status: ${payment.status}`
+            );
+        }
+
+        const updated = await client.query(
+            `UPDATE payments
+             SET status = 'FAILED'
+             WHERE id = $1
+             RETURNING *`,
+            [paymentId]
+        );
+
+        if (payment.method === "QRIS") {
+            await client.query(
+                `UPDATE qris_transactions
+                 SET status = 'FAILED'
+                 WHERE payment_id = $1`,
+                [paymentId]
+            );
+        }
+
+        await client.query("COMMIT");
+
+        return updated.rows[0];
+
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
+
+// ======================================================
+// MEMERIKSA KEDALUWARSA QRIS
+// ======================================================
+
+async function expireQris(paymentId) {
+    const client = await db.connect();
+
+    try {
+        await client.query("BEGIN");
+
+        const result = await client.query(
+            `SELECT *
+             FROM payments
+             WHERE id = $1
+             FOR UPDATE`,
+            [paymentId]
+        );
+
+        const payment = result.rows[0];
+
+        if (!payment) {
+            throw new Error("Pembayaran tidak ditemukan.");
+        }
+
+        if (payment.method !== "QRIS") {
+            throw new Error("Pembayaran bukan QRIS.");
+        }
+
+        if (payment.status !== "PENDING") {
+            await client.query("COMMIT");
+
+            return {
+                status: payment.status,
+                expired: payment.status === "EXPIRED"
+            };
+        }
+
+        const qris = await client.query(
+            `SELECT *
+             FROM qris_transactions
+             WHERE payment_id = $1
+             FOR UPDATE`,
+            [paymentId]
+        );
+
+        if (!qris.rows[0]) {
+            throw new Error("Data QRIS tidak ditemukan.");
+        }
+
+        const expiry = await client.query(
+            `SELECT expired_at <= CURRENT_TIMESTAMP AS expired
+             FROM qris_transactions
+             WHERE payment_id = $1`,
+            [paymentId]
+        );
+
+        if (!expiry.rows[0].expired) {
+            await client.query("COMMIT");
+
+            return {
+                status: "PENDING",
+                expired: false,
+                expired_at: qris.rows[0].expired_at
+            };
+        }
+
+        await client.query(
+            `UPDATE payments
+             SET status = 'EXPIRED'
+             WHERE id = $1`,
+            [paymentId]
+        );
+
+        await client.query(
+            `UPDATE qris_transactions
+             SET status = 'EXPIRED'
+             WHERE payment_id = $1`,
+            [paymentId]
+        );
+
+        await client.query("COMMIT");
+
+        return {
+            status: "EXPIRED",
+            expired: true,
+            message: "QRIS sudah kedaluwarsa."
+        };
+
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
+
 module.exports = {
     createPayment,
     getAllPayments,
     getPaymentById,
     payCash,
     createQris,
-    simulateQris
+    simulateQris,
+    failPayment,
+    expireQris
 };

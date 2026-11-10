@@ -133,9 +133,8 @@ function showPage(pageId, element) {
             "barang",
             "tambahBarang",
             "kategori",
-            "transaksi",
             "pembayaran",
-            "riwayat",
+            "riwayatTransaksi",
             "laporan"
         ]
         : [
@@ -174,8 +173,17 @@ function showPage(pageId, element) {
 
     if (pageId === "kategori") loadCategoryTable();
 
-    if (pageId === "pembayaran") {renderCart();
-}
+        if (pageId === "pembayaran") {
+            renderCart();
+        }
+
+        if (pageId === "riwayatTransaksi") {
+            loadTransactionHistory();
+        }
+
+        if (pageId === "laporan") {
+            loadSalesReport();
+        }
 }
 
 // ===== DATA BARANG =====
@@ -200,7 +208,7 @@ async function loadCommodities() {
     const table = document.getElementById("commodityTable");
     const message = document.getElementById("commodityMessage");
     // Kolom "Aksi" hanya ada untuk OWNER, sehingga jumlah kolom berbeda
-    const colspan = Auth.isOwner() ? 10 : 9;
+    const colspan = 9;
 
     setMessage(message, "Sedang mengambil data barang...");
 
@@ -256,14 +264,16 @@ async function loadCommodities() {
                         <td>${formatRupiah(item.selling_price)}</td>
                         <td>${status}</td>
 
-                        <td>
-                            <button class="btn-sm"
-                                data-act="add-cart"
-                                data-id="${esc(item.id)}"
-                                ${!item.is_active ? "disabled" : ""}>
-                                + Beli
-                            </button>
-                        </td>
+                        ${!Auth.isOwner() ? `
+                            <td>
+                                <button class="btn-sm"
+                                    data-act="add-cart"
+                                    data-id="${esc(item.id)}"
+                                    ${!item.is_active ? "disabled" : ""}>
+                                    + Beli
+                                </button>
+                            </td>
+                        ` : ""}
 
                         ${actions}
                     </tr>`;
@@ -745,6 +755,288 @@ document.getElementById("commodityForm").addEventListener("submit", async (event
         setMessage(message, error.message, "error");
     }
 });
+// ======================================================
+// RIWAYAT TRANSAKSI DAN PEMBAYARAN
+// ======================================================
+
+async function loadTransactionHistory() {
+    const table = document.getElementById("transactionHistoryTable");
+    const message = document.getElementById("transactionHistoryMessage");
+
+    table.innerHTML = `
+        <tr>
+            <td colspan="7">Memuat riwayat transaksi...</td>
+        </tr>
+    `;
+
+    try {
+        // Mengambil seluruh data pembayaran
+        const result = await apiFetch(PAYMENT_API);
+
+        const payments = result.data || [];
+
+        // Mengurutkan berdasarkan tanggal terbaru
+        payments.sort((a, b) =>
+            new Date(b.created_at) - new Date(a.created_at)
+        );
+
+        // Menghitung pembayaran berhasil
+        const paidPayments = payments.filter(
+            item => String(item.status).toUpperCase() === "PAID"
+        );
+
+        // Menghitung total uang dari pembayaran berhasil
+        const totalPaid = paidPayments.reduce(
+            (total, item) => total + Number(item.amount || 0),
+            0
+        );
+
+        // Menampilkan ringkasan
+        document.getElementById("historyTransactionTotal").textContent =
+            payments.length;
+
+        document.getElementById("historyPaid").textContent =
+            paidPayments.length;
+
+        document.getElementById("historyTotal").textContent =
+            formatRupiah(totalPaid);
+
+        if (payments.length === 0) {
+            table.innerHTML = `
+                <tr>
+                    <td colspan="7">Belum ada transaksi.</td>
+                </tr>
+            `;
+
+            setMessage(message, "Belum ada riwayat transaksi.");
+            return;
+        }
+
+        // Menampilkan daftar transaksi dan pembayaran
+        table.innerHTML = payments.map((payment, index) => `
+            <tr>
+                <td>${index + 1}</td>
+
+                <td>${esc(payment.sale_id)}</td>
+
+                <td>${esc(payment.id)}</td>
+
+                <td>
+                    ${formatDate(payment.paid_at || payment.created_at)}
+                </td>
+
+                <td>${esc(payment.method)}</td>
+
+                <td>${formatRupiah(payment.amount)}</td>
+
+                <td>
+                    ${esc(payment.status)}
+                </td>
+            </tr>
+        `).join("");
+
+        setMessage(message, `Berhasil menampilkan ${payments.length} data transaksi.`);
+
+    } catch (error) {
+        console.error("Gagal mengambil riwayat:", error);
+
+        table.innerHTML = `
+            <tr>
+                <td colspan="7">Gagal mengambil data transaksi.</td>
+            </tr>
+        `;
+
+        setMessage(message, error.message, "error");
+    }
+}
+
+
+// ======================================================
+// LAPORAN PENJUALAN DAN PEMBAYARAN
+// ======================================================
+
+function getReportDate(value) {
+    if (!value) return "";
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) return "";
+
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+
+    return `${year}-${month}-${day}`;
+}
+
+async function loadSalesReport() {
+    const table = document.getElementById("reportTable");
+    const message = document.getElementById("reportMessage");
+
+    if (!table) return;
+
+    table.innerHTML = `
+        <tr>
+            <td colspan="7">Memuat laporan...</td>
+        </tr>
+    `;
+
+    try {
+        // Mengambil data pembayaran dari Payment Microservice
+        const result = await apiFetch(PAYMENT_API);
+
+        const payments = result.data || [];
+
+        // Mengambil tanggal filter
+        const startDate =
+            document.getElementById("reportStartDate").value;
+
+        const endDate =
+            document.getElementById("reportEndDate").value;
+
+        if (startDate && endDate && startDate > endDate) {
+            throw new Error("Tanggal awal tidak boleh melebihi tanggal akhir.");
+        }
+
+        // Filter berdasarkan tanggal pembayaran dibuat
+        const filteredPayments = payments.filter(payment => {
+            const date = getReportDate(
+                payment.created_at || payment.paid_at
+            );
+
+            if (!date) return false;
+
+            if (startDate && date < startDate) return false;
+            if (endDate && date > endDate) return false;
+
+            return true;
+        });
+
+        // Pembayaran berhasil
+        const paid = filteredPayments.filter(payment =>
+            String(payment.status).toUpperCase() === "PAID"
+        );
+
+        // Pembayaran pending
+        const pending = filteredPayments.filter(payment =>
+            String(payment.status).toUpperCase() === "PENDING"
+        );
+
+        // Total pendapatan hanya dari pembayaran PAID
+        const income = paid.reduce(
+            (total, payment) =>
+                total + Number(payment.amount || 0),
+            0
+        );
+
+        // Hitung transaksi unik
+        const transactionCount = new Set(
+            paid.map(payment => payment.sale_id).filter(Boolean)
+        ).size;
+
+        // Pembayaran CASH
+        const cashPayments = paid.filter(payment =>
+            String(payment.method).toUpperCase() === "CASH"
+        );
+
+        const cashIncome = cashPayments.reduce(
+            (total, payment) =>
+                total + Number(payment.amount || 0),
+            0
+        );
+
+        // Pembayaran QRIS
+        const qrisPayments = paid.filter(payment =>
+            String(payment.method).toUpperCase() === "QRIS"
+        );
+
+        const qrisIncome = qrisPayments.reduce(
+            (total, payment) =>
+                total + Number(payment.amount || 0),
+            0
+        );
+
+        // Tampilkan ringkasan
+        document.getElementById("reportIncome").textContent =
+            formatRupiah(income);
+
+        document.getElementById("reportTransactions").textContent =
+            transactionCount;
+
+        document.getElementById("reportPaid").textContent =
+            paid.length;
+
+        document.getElementById("reportPending").textContent =
+            pending.length;
+
+        document.getElementById("reportCashIncome").textContent =
+            formatRupiah(cashIncome);
+
+        document.getElementById("reportCashCount").textContent =
+            `${cashPayments.length} transaksi`;
+
+        document.getElementById("reportQrisIncome").textContent =
+            formatRupiah(qrisIncome);
+
+        document.getElementById("reportQrisCount").textContent =
+            `${qrisPayments.length} transaksi`;
+
+        // Urutkan dari transaksi terbaru
+        filteredPayments.sort((a, b) =>
+            new Date(b.created_at || b.paid_at) -
+            new Date(a.created_at || a.paid_at)
+        );
+
+        // Tampilkan tabel
+        if (filteredPayments.length === 0) {
+            table.innerHTML = `
+                <tr>
+                    <td colspan="7">Tidak ada transaksi pada periode ini.</td>
+                </tr>
+            `;
+        } else {
+            table.innerHTML = filteredPayments.map((payment, index) => `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td>${esc(payment.sale_id)}</td>
+                    <td>${esc(payment.id)}</td>
+                    <td>${formatDate(
+                        payment.paid_at || payment.created_at
+                    )}</td>
+                    <td>${esc(payment.method)}</td>
+                    <td>${formatRupiah(payment.amount)}</td>
+                    <td>${esc(payment.status)}</td>
+                </tr>
+            `).join("");
+        }
+
+        setMessage(
+            message,
+            `Laporan berhasil dimuat. ${filteredPayments.length} pembayaran ditemukan.`,
+            "success"
+        );
+
+    } catch (error) {
+        console.error("Gagal memuat laporan:", error);
+
+        table.innerHTML = `
+            <tr>
+                <td colspan="7">Gagal mengambil laporan.</td>
+            </tr>
+        `;
+
+        setMessage(message, error.message, "error");
+    }
+}
+
+// Reset filter tanggal
+function resetSalesReport() {
+    document.getElementById("reportStartDate").value = "";
+    document.getElementById("reportEndDate").value = "";
+
+    loadSalesReport();
+}
+
 
 // ===== INISIALISASI =====
 // Dijalankan satu kali saat halaman selesai dimuat
@@ -778,8 +1070,14 @@ document.getElementById("commodityForm").addEventListener("submit", async (event
         showPage("barang", menuBarang);
 
     } else {
-        loadDashboard();
-    }
+    // Sembunyikan kolom Beli khusus OWNER
+                document.querySelectorAll("[data-customer-only]")
+                    .forEach(el => {
+                        el.hidden = true;
+                    });
+
+                loadDashboard();
+            }
 })();
 
 
@@ -794,6 +1092,9 @@ let shoppingCart = [];
 let activePaymentId = null;
 let activeSaleId = null;
 let activeSale = null;
+let qrisCountdownInterval = null;
+let activePaymentMethod = null;
+let activeCashReceived = 0;
 
 // Format rupiah menggunakan fungsi formatRupiah yang sudah ada
 function getCartTotal() {
@@ -930,16 +1231,13 @@ function clearCart() {
 // PROSES CHECKOUT
 // ======================================================
 
+
 async function processCheckout() {
     const message = document.getElementById("paymentMessage");
     const button = document.getElementById("checkoutButton");
 
     if (shoppingCart.length === 0) {
-        setMessage(
-            message,
-            "Keranjang belanja masih kosong.",
-            "error"
-        );
+        setMessage(message, "Keranjang belanja masih kosong.", "error");
         return;
     }
 
@@ -959,17 +1257,19 @@ async function processCheckout() {
             );
             return;
         }
+
+        activeCashReceived = received;
     }
 
     button.disabled = true;
     button.textContent = "Memproses...";
 
     document.getElementById("qrisResult").hidden = true;
+    document.getElementById("cashActions").hidden = true;
     document.getElementById("receiptPanel").hidden = true;
 
     try {
-        // 1. BUAT TRANSAKSI PENJUALAN
-
+        // 1. Membuat transaksi penjualan
         const saleResult = await apiFetch(SALES_API, {
             method: "POST",
             body: JSON.stringify({
@@ -985,13 +1285,11 @@ async function processCheckout() {
         activeSale = sale;
         activeSaleId = sale.id;
 
-        // 2. BUAT TRANSAKSI PEMBAYARAN
-
+        // 2. Membuat transaksi pembayaran
         const paymentResult = await apiFetch(PAYMENT_API, {
             method: "POST",
             headers: {
-                "Idempotency-Key":
-                    `SALE-${sale.id}`
+                "Idempotency-Key": `SALE-${sale.id}`
             },
             body: JSON.stringify({
                 sale_id: sale.id,
@@ -1004,54 +1302,49 @@ async function processCheckout() {
         const payment = paymentResult.data;
 
         activePaymentId = payment.id;
+        activePaymentMethod = method;
 
-        // 3. JIKA CASH
+        // Sembunyikan tombol checkout selama pembayaran menunggu
+        button.hidden = true;
 
+        document.getElementById("paymentMethod").disabled = true;
+
+        // 3. Pembayaran CASH
         if (method === "CASH") {
-            const received = Number(
-                document.getElementById("cashReceived").value
-            );
+            document.getElementById("cashActions").hidden = false;
 
-            const cashResult = await apiFetch(
-                `${PAYMENT_API}/${payment.id}/cash`,
-                {
-                    method: "POST",
-                    body: JSON.stringify({
-                        received_amount: received
-                    })
-                }
-            );
-
-            // Tandai transaksi penjualan selesai
-            await apiFetch(
-                `${SALES_API}/${sale.id}/paid`,
-                { method: "PATCH" }
-            );
-
-            showReceipt(
-                sale,
-                cashResult.data.payment,
-                cashResult.data.change_amount,
-                received
+            setMessage(
+                message,
+                "Transaksi tunai dibuat. Silakan konfirmasi pembayaran.",
+                "success"
             );
 
             return;
         }
 
-        // 4. JIKA QRIS
-
+        // 4. Pembayaran QRIS
         const qrisResult = await apiFetch(
             `${PAYMENT_API}/${payment.id}/qris`,
             { method: "POST" }
         );
 
+        const expiredAt = qrisResult.data?.expired_at;
+
+        if (!expiredAt) {
+            throw new Error(
+                "Waktu kedaluwarsa QRIS tidak ditemukan dari server."
+            );
+        }
+
         document.getElementById("qrisImage").src =
             qrisResult.qr_image;
 
         document.getElementById("qrisInfo").textContent =
-            `Total pembayaran: ${formatRupiah(sale.total_amount)}. QRIS simulasi berlaku 5 menit.`;
+            `Total pembayaran: ${formatRupiah(sale.total_amount)}.`;
 
         document.getElementById("qrisResult").hidden = false;
+
+        startQrisCountdown(expiredAt);
 
         setMessage(
             message,
@@ -1062,20 +1355,256 @@ async function processCheckout() {
     } catch (error) {
         console.error(error);
 
-        setMessage(
-            message,
-            error.message,
-            "error"
-        );
+        setMessage(message, error.message, "error");
+
+        // Jika transaksi sudah dibuat tetapi proses berikutnya gagal,
+        // pembayaran masih dapat dibatalkan melalui endpoint gagal.
+        if (activePaymentId) {
+            document.getElementById("cashActions").hidden = false;
+            document.getElementById("checkoutButton").hidden = true;
+        } else {
+            button.hidden = false;
+        }
+
     } finally {
         button.disabled = false;
         button.textContent = "Proses Pembayaran";
     }
 }
 
+
+
+async function confirmCashPayment() {
+    if (!activePaymentId || !activeSaleId) {
+        alert("Transaksi pembayaran tidak ditemukan.");
+        return;
+    }
+
+    const buttons = document.querySelectorAll("#cashActions button");
+
+    buttons.forEach(button => button.disabled = true);
+
+    try {
+        const cashResult = await apiFetch(
+            `${PAYMENT_API}/${activePaymentId}/cash`,
+            {
+                method: "POST",
+                body: JSON.stringify({
+                    received_amount: activeCashReceived
+                })
+            }
+        );
+
+        // Menandai transaksi penjualan selesai
+        await apiFetch(
+            `${SALES_API}/${activeSaleId}/paid`,
+            { method: "PATCH" }
+        );
+
+        showReceipt(
+            activeSale,
+            cashResult.data.payment,
+            cashResult.data.change_amount,
+            activeCashReceived
+        );
+
+    } catch (error) {
+        setMessage(
+            document.getElementById("paymentMessage"),
+            error.message,
+            "error"
+        );
+
+    } finally {
+        buttons.forEach(button => button.disabled = false);
+    }
+}
+
+
+
+async function failCurrentPayment() {
+    if (!activePaymentId) {
+        alert("Pembayaran tidak ditemukan.");
+        return;
+    }
+
+    const confirmation = confirm(
+        "Apakah kamu yakin ingin menandai pembayaran ini sebagai gagal?"
+    );
+
+    if (!confirmation) return;
+
+    try {
+        await apiFetch(
+            `${PAYMENT_API}/${activePaymentId}/fail`,
+            { method: "POST" }
+        );
+
+        stopQrisCountdown();
+
+        document.getElementById("qrisResult").hidden = true;
+        document.getElementById("cashActions").hidden = true;
+
+        document.getElementById("qrisImage").src = "";
+
+        document.getElementById("checkoutButton").hidden = false;
+        document.getElementById("paymentMethod").disabled = false;
+
+        setMessage(
+            document.getElementById("paymentMessage"),
+            "Pembayaran gagal. Silakan lakukan transaksi baru.",
+            "error"
+        );
+
+        activePaymentId = null;
+        activeSaleId = null;
+        activeSale = null;
+        activePaymentMethod = null;
+
+    } catch (error) {
+        setMessage(
+            document.getElementById("paymentMessage"),
+            error.message,
+            "error"
+        );
+    }
+}
+
+
+
+
+function stopQrisCountdown() {
+    if (qrisCountdownInterval) {
+        clearInterval(qrisCountdownInterval);
+        qrisCountdownInterval = null;
+    }
+}
+
+
+function startQrisCountdown(expiredAt) {
+    stopQrisCountdown();
+
+    const countdown = document.getElementById("qrisCountdown");
+    const simulateButton = document.getElementById("simulateQrisButton");
+
+    simulateButton.disabled = false;
+
+    async function updateCountdown() {
+        const remaining = new Date(expiredAt).getTime() - Date.now();
+
+        if (remaining <= 0) {
+            stopQrisCountdown();
+
+            countdown.textContent = "Waktu pembayaran habis.";
+
+            await checkQrisExpiration();
+            return;
+        }
+
+        const minutes = Math.floor(remaining / 60000);
+        const seconds = Math.floor((remaining % 60000) / 1000);
+
+        countdown.textContent =
+            `Sisa waktu: ${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    }
+
+    updateCountdown();
+
+    qrisCountdownInterval = setInterval(
+        updateCountdown,
+        1000
+    );
+}
+
+
+async function checkQrisExpiration() {
+    if (!activePaymentId) return;
+
+    try {
+        const result = await apiFetch(
+            `${PAYMENT_API}/${activePaymentId}/qris/expire`,
+            { method: "POST" }
+        );
+
+        if (result.status === "EXPIRED" || result.expired === true) {
+            finishExpiredQris();
+            return;
+        }
+
+        if (result.status === "PAID") {
+            document.getElementById("qrisCountdown").textContent =
+                "Pembayaran sudah berhasil.";
+            return;
+        }
+
+        if (result.status === "FAILED") {
+            finishFailedQris();
+            return;
+        }
+
+        // Jika server masih menyatakan PENDING, periksa lagi.
+        qrisCountdownInterval = setInterval(
+            checkQrisExpiration,
+            1000
+        );
+
+    } catch (error) {
+        console.error("Pemeriksaan QRIS gagal:", error);
+
+        document.getElementById("qrisCountdown").textContent =
+            "Gagal memeriksa masa berlaku. Periksa koneksi server.";
+    }
+}
+
+
+function finishExpiredQris() {
+    stopQrisCountdown();
+
+    document.getElementById("qrisImage").src = "";
+    document.getElementById("qrisResult").hidden = true;
+
+    document.getElementById("checkoutButton").hidden = false;
+    document.getElementById("paymentMethod").disabled = false;
+
+    setMessage(
+        document.getElementById("paymentMessage"),
+        "QRIS EXPIRED. Kode pembayaran sudah tidak berlaku.",
+        "error"
+    );
+
+    activePaymentId = null;
+    activeSaleId = null;
+    activeSale = null;
+    activePaymentMethod = null;
+}
+
+
+function finishFailedQris() {
+    stopQrisCountdown();
+
+    document.getElementById("qrisImage").src = "";
+    document.getElementById("qrisResult").hidden = true;
+
+    document.getElementById("checkoutButton").hidden = false;
+    document.getElementById("paymentMethod").disabled = false;
+
+    setMessage(
+        document.getElementById("paymentMessage"),
+        "Pembayaran QRIS berstatus FAILED.",
+        "error"
+    );
+
+    activePaymentId = null;
+    activeSaleId = null;
+    activeSale = null;
+    activePaymentMethod = null;
+}
+
+
 // ======================================================
 // SIMULASI PEMBAYARAN QRIS
 // ======================================================
+
 
 async function simulatePayment() {
     if (!activePaymentId || !activeSaleId) {
@@ -1095,7 +1624,8 @@ async function simulatePayment() {
         );
 
         if (result.status === "EXPIRED") {
-            throw new Error("QRIS sudah kedaluwarsa.");
+            finishExpiredQris();
+            return;
         }
 
         if (!result.payment ||
@@ -1103,7 +1633,8 @@ async function simulatePayment() {
             throw new Error("Pembayaran belum berhasil.");
         }
 
-        // Selesaikan transaksi penjualan
+        stopQrisCountdown();
+
         await apiFetch(
             `${SALES_API}/${activeSaleId}/paid`,
             { method: "PATCH" }
@@ -1124,16 +1655,25 @@ async function simulatePayment() {
         );
 
     } finally {
-        button.disabled = false;
-        button.textContent = "Simulasikan Pembayaran Berhasil";
+        // Jangan mengaktifkan kembali tombol jika QRIS sudah tidak berlaku.
+        if (activePaymentId) {
+            button.disabled = false;
+            button.textContent = "Simulasikan Pembayaran Berhasil";
+        }
     }
 }
+
 
 // ======================================================
 // BUKTI PEMBAYARAN
 // ======================================================
 
 function showReceipt(sale, payment, change, received) {
+    stopQrisCountdown();
+
+    document.getElementById("cashActions").hidden = true;
+    document.getElementById("checkoutButton").hidden = false;
+    document.getElementById("paymentMethod").disabled = false;
     const panel = document.getElementById("receiptPanel");
     const content = document.getElementById("receiptContent");
 
@@ -1230,6 +1770,20 @@ function printReceipt() {
 
 // Memulai pembelian baru
 function newPurchase() {
+    stopQrisCountdown();
+
+    document.getElementById("cashActions").hidden = true;
+    document.getElementById("qrisResult").hidden = true;
+
+    document.getElementById("checkoutButton").hidden = false;
+    document.getElementById("paymentMethod").disabled = false;
+
+    document.getElementById("qrisImage").src = "";
+    document.getElementById("qrisCountdown").textContent =
+        "Sisa waktu: 05:00";
+
+    activePaymentMethod = null;
+    activeCashReceived = 0;
     document.getElementById("receiptPanel").hidden = true;
     document.getElementById("paymentMessage").textContent = "";
 
@@ -1271,6 +1825,9 @@ document.getElementById("paymentMethod").addEventListener(
     event => {
         document.getElementById("cashGroup").hidden =
             event.target.value !== "CASH";
+
+        document.getElementById("cashActions").hidden = true;
+        document.getElementById("qrisResult").hidden = true;
     }
 );
 

@@ -152,11 +152,77 @@ async function simulateQris(req, res) {
     }
 }
 
+// Membatalkan pembayaran
+async function fail(req, res) {
+    try {
+        const payment = await paymentService.failPayment(req.params.id);
+
+        res.json({
+            message: "Pembayaran berhasil ditandai gagal.",
+            data: payment
+        });
+
+    } catch (error) {
+        res.status(400).json({
+            message: "Gagal membatalkan pembayaran.",
+            error: error.message
+        });
+    }
+}
+
+
+// Memeriksa masa berlaku QRIS
+async function checkQrisExpiry(req, res) {
+    try {
+        const result = await paymentService.expireQris(req.params.id);
+
+        res.json(result);
+
+    } catch (error) {
+        res.status(400).json({
+            message: error.message
+        });
+    }
+}
+// Membatalkan pembayaran
+async function fail(req, res) {
+    try {
+        const data = await paymentService.failPayment(req.params.id);
+
+        res.json({
+            message: "Pembayaran ditandai gagal.",
+            data
+        });
+
+    } catch (error) {
+        res.status(400).json({
+            message: error.message
+        });
+    }
+}
+
+
+// Memeriksa kedaluwarsa QRIS
+async function expireQris(req, res) {
+    try {
+        const data = await paymentService.expireQris(req.params.id);
+
+        res.json(data);
+
+    } catch (error) {
+        res.status(400).json({
+            message: error.message
+        });
+    }
+}
+
 module.exports = {
     create,
     getAll,
     getById,
     payCash,
     createQris,
-    simulateQris
+    simulateQris,
+    fail,
+    expireQris
 };
