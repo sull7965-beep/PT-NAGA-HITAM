@@ -1223,3 +1223,42 @@ td.actions {
 
 
 
+
+/* Pesan validasi di bawah input */
+.field-error {
+    display: block;
+    color: #dc2626;
+    font-size: 13px;
+    margin-top: 6px;
+    font-weight: 500;
+}
+
+/* Input ketika terjadi kesalahan */
+.input-error {
+    border: 1px solid #dc2626 !important;
+    outline: none;
+}
+
+/* Efek ketika input diperbaiki */
+.input-valid {
+    border-color: #16a34a !important;
+}
+
+
+
+
+
+
+
+.field-error {
+    display: block;
+    color: #dc2626;
+    font-size: 13px;
+    margin-top: 6px;
+    font-weight: 500;
+}
+
+.input-error {
+    border: 1px solid #dc2626 !important;
+    outline: none;
+}

@@ -579,7 +579,7 @@ async function openHistoryModal(id) {
                         <td>${esc(formatDate(r.effective_at))}</td>
                         <td>${formatRupiah(r.cost_price)}</td>
                         <td>${formatRupiah(r.selling_price)}</td>
-                        <td>${esc(r.changed_by)}</td>
+                        <td>${esc(r.changed_by_name || "-")}</td>
                     </tr>`).join("")}
                 </tbody></table></div>`;
     } catch (error) {
@@ -1833,3 +1833,135 @@ document.getElementById("paymentMethod").addEventListener(
 
 // Saat pertama kali membuka halaman
 renderCart();
+
+
+
+
+/* =========================================
+   VALIDASI FORMULIR INLINE BAHASA INDONESIA
+========================================= */
+
+document.querySelectorAll("form").forEach((form) => {
+
+    // Matikan notifikasi bawaan browser
+    form.noValidate = true;
+
+    function getErrorMessage(field) {
+        if (field.validity.valueMissing) {
+            const label = field.labels?.[0]?.textContent
+                ?.replace("*", "")
+                .trim();
+
+            return label
+                ? `${label} wajib diisi!`
+                : "Kolom ini wajib diisi!";
+        }
+
+        if (field.validity.typeMismatch) {
+            return "Format yang dimasukkan tidak valid!";
+        }
+
+        if (field.validity.badInput) {
+            return "Masukkan angka yang valid!";
+        }
+
+        if (field.validity.rangeUnderflow) {
+            return `Nilai minimal adalah ${field.min}!`;
+        }
+
+        if (field.validity.rangeOverflow) {
+            return `Nilai maksimal adalah ${field.max}!`;
+        }
+
+        if (field.validity.patternMismatch) {
+            return "Format data tidak sesuai!";
+        }
+
+        return "Periksa kembali data yang dimasukkan!";
+    }
+
+    function showError(field) {
+        if (!field.matches("input, select, textarea")) return true;
+
+        const errorMessage = getErrorMessage(field);
+
+        let errorElement = field.parentElement.querySelector(
+            ".field-error"
+        );
+
+        if (!field.checkValidity()) {
+
+            if (!errorElement) {
+                errorElement = document.createElement("small");
+                errorElement.className = "field-error";
+
+                field.insertAdjacentElement(
+                    "afterend",
+                    errorElement
+                );
+            }
+
+            errorElement.textContent = errorMessage;
+            field.classList.add("input-error");
+            field.classList.remove("input-valid");
+
+            return false;
+        }
+
+        if (errorElement) {
+            errorElement.remove();
+        }
+
+        field.classList.remove("input-error");
+        field.classList.add("input-valid");
+
+        return true;
+    }
+
+    // Validasi ketika formulir dikirim
+    form.addEventListener("submit", function (event) {
+        const fields = form.querySelectorAll(
+            "input[required], select[required], textarea[required]"
+        );
+
+        let isValid = true;
+        let firstInvalidField = null;
+
+        fields.forEach((field) => {
+            const valid = showError(field);
+
+            if (!valid) {
+                isValid = false;
+
+                if (!firstInvalidField) {
+                    firstInvalidField = field;
+                }
+            }
+        });
+
+        if (!isValid) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+
+            firstInvalidField.focus();
+        }
+
+    }, true);
+
+    // Hapus pesan ketika pengguna mulai memperbaiki input
+    form.querySelectorAll(
+        "input, select, textarea"
+    ).forEach((field) => {
+
+        field.addEventListener("input", () => {
+            showError(field);
+        });
+
+        field.addEventListener("change", () => {
+            showError(field);
+        });
+
+    });
+
+});
+

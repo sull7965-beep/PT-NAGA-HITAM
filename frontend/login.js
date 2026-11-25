@@ -75,3 +75,89 @@ document.getElementById("loginForm").addEventListener("submit", async (event) =>
         button.textContent = "Masuk";
     }
 });
+
+
+
+
+
+
+document.addEventListener("DOMContentLoaded", () => {
+    const loginForm = document.querySelector("#loginForm");
+
+    if (!loginForm) return;
+
+    loginForm.noValidate = true;
+
+    const fields = [
+        {
+            id: "email",
+            message: "Email wajib diisi!"
+        },
+        {
+            id: "password",
+            message: "Password wajib diisi!"
+        }
+    ];
+
+    function validateField(field, message) {
+        let error = field.parentElement.querySelector(".field-error");
+
+        if (!field.value.trim()) {
+            if (!error) {
+                error = document.createElement("small");
+                error.className = "field-error";
+                field.insertAdjacentElement("afterend", error);
+            }
+
+            error.textContent = message;
+            field.classList.add("input-error");
+
+            return false;
+        }
+
+        if (field.type === "email" && !field.checkValidity()) {
+            if (!error) {
+                error = document.createElement("small");
+                error.className = "field-error";
+                field.insertAdjacentElement("afterend", error);
+            }
+
+            error.textContent = "Format email tidak valid!";
+            field.classList.add("input-error");
+
+            return false;
+        }
+
+        if (error) error.remove();
+
+        field.classList.remove("input-error");
+
+        return true;
+    }
+
+    fields.forEach(({ id, message }) => {
+        const field = document.getElementById(id);
+
+        if (!field) return;
+
+        field.addEventListener("input", () => {
+            validateField(field, message);
+        });
+    });
+
+    loginForm.addEventListener("submit", (event) => {
+        let valid = true;
+
+        fields.forEach(({ id, message }) => {
+            const field = document.getElementById(id);
+
+            if (!field || !validateField(field, message)) {
+                valid = false;
+            }
+        });
+
+        if (!valid) {
+            event.preventDefault();
+        }
+    }, true);
+});

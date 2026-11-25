@@ -1,4 +1,6 @@
 const express = require("express");
+const helmet = require("helmet");
+const { rateLimit } = require("express-rate-limit");
 const cors = require("cors");
 require("dotenv").config();
 
@@ -13,9 +15,34 @@ if (!process.env.JWT_SECRET) {
 }
 
 const app = express();
+// ==========================================
+// RATE LIMITING
+// ==========================================
+const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 menit
+    limit: 300,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: {
+        message: "Terlalu banyak permintaan. Silakan coba lagi nanti."
+    }
+});
 
+
+// Security headers
+app.use(helmet());
+
+// CORS
 app.use(cors());
-app.use(express.json());
+
+// Batas ukuran JSON request
+app.use(express.json({
+    limit: "100kb"
+}));
+
+// Rate limiting API
+app.use("/commodities", apiLimiter);
+app.use("/categories", apiLimiter);
 
 // Halaman utama
 app.get("/", (req, res) => {
@@ -33,25 +60,17 @@ app.use(
     "/commodities",
     authenticate,
     (req, res, next) => {
-        const butuhOwner = req.method !== "GET" || /\/pricehistories\/?$/.test(req.path);
+        const butuhOwner = req.method !== "GET" || /\/price-histories\/?$/.test(req.path);
         return butuhOwner ? requireOwner(req, res, next) : next();
     },
     commodityRoutes
 );
 
-// API kategori: seluruh operasi (CRUD) khusus OWNER/dan pealnggan
+// API kategori: seluruh operasi CRUD hanya untuk OWNER (sesuai SRS)
 app.use(
     "/categories",
     authenticate,
-    (req, res, next) => {
-        // Semua pengguna login boleh melihat kategori
-        if (req.method === "GET") {
-            return next();
-        }
-
-        // Tambah, ubah, dan hapus hanya untuk OWNER
-        return requireOwner(req, res, next);
-    },
+    requireOwner,
     categoryRoutes
 );
 
