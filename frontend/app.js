@@ -10,7 +10,7 @@ const API_BASE = "http://localhost:3001";
 const COMMODITY_API = `${API_BASE}/commodities`;  // endpoint barang
 const CATEGORY_API = `${API_BASE}/categories`;    // endpoint kategori
 const PAYMENT_API = "http://localhost:3002/payments"; // endpoit payment
-const SALES_API = "http://localhost:3003/sales"; /// endpoint sales
+const SALES_API = "http://localhost:3002/sales"; /// endpoint sales
 const PAGE_SIZE = 10;                             // jumlah barang per halaman
 
 // ===== AUTENTIKASI =====
